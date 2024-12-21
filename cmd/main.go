@@ -1,9 +1,6 @@
 package main
 
 import (
-    "log"
-    "time"
-    
     "github.com/DaleWYZ/jx-deploy-test-1221/pkg/timelogger"
 )
 
