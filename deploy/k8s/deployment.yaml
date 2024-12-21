@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: timelogger
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: timelogger
+  template:
+    metadata:
+      labels:
+        app: timelogger
+    spec:
+      containers:
+      - name: timelogger
+        image: ${DOCKER_REGISTRY}/${APP_NAME}:${VERSION}
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "100m" 

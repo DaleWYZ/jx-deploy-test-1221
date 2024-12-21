@@ -1,0 +1,291 @@
+# Jenkins X 与 Tekton Pipeline 集成示例
+# 使用方法:
+# 1. 确保已安装 Jenkins X (jx)
+# 2. 在项目根目录创建 jenkins-x.yml
+# 3. 执行 jx start pipeline 启动构建 (会自动读取当前目录下的 jenkins-x.yml 配置文件)
+
+apiVersion: jenkins.io/v1
+kind: Pipeline
+metadata:
+  name: local-app-pipeline
+spec:
+  type: tekton
+  agent:
+    label: jenkins-go
+  environment:
+    - name: DOCKER_REGISTRY
+      value: "your-registry"
+    - name: APP_NAME
+      value: "your-go-app-name"
+    - name: VERSION
+      value: "1.0.0"
+  
+  pipelines:
+    pullRequest:
+      pipeline:
+        agent:
+          image: gcr.io/jenkinsxio/builder-go
+        stages:
+          - name: ci
+            steps:
+              # 执行 Go 构建和测试
+              - name: build-and-test
+                command: |
+                  go mod download
+                  go test ./...
+                  CGO_ENABLED=0 GOOS=linux go build -o main
+              
+              - name: build-container
+                command: skaffold build  # skaffold.yaml 需要放在项目根目录,Jenkins X 会自动将其复制到 Pod 中执行，Jenkins X 会自动在构建 Pod 中提供 skaffold 工具,无需本地安装
+                
+    release:
+      pipeline:
+        agent:
+          image: gcr.io/jenkinsxio/builder-go
+        stages:
+          - name: build-and-push
+            steps:
+              # 获取下一个版本号
+              - name: version
+                command: jx step next-version
+                
+              # 编译 Go 应用
+              - name: build-go
+                command: |
+                  go mod download
+                  CGO_ENABLED=0 GOOS=linux go build -o main
+                
+              # 构建和推送容器镜像 (通过 skaffold build -p release 命令自动构建和推送到 DOCKER_REGISTRY)
+              # 镜像仓库地址在当前文件的 spec.environment 中通过 DOCKER_REGISTRY 环境变量设置
+              - name: build-container
+                command: |
+                  export VERSION=$(cat VERSION)
+                  skaffold build -p release
+                
+              # 部署应用
+              - name: promote
+                command: jx promote -b --all-auto --timeout 1h --version \$(cat VERSION)
+
+---
+# skaffold.yaml 配置说明
+# Skaffold 是一个命令行工具，用于 Kubernetes 应用的持续开发
+# 主要用于自动化构建容器镜像和部署应用到 Kubernetes 集群
+# 要使用 skaffold/v2beta5 版本,需要先安装 Skaffold 工具:
+# 1. 使用 curl 安装:
+#    curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/latest/skaffold-linux-amd64
+#    chmod +x skaffold
+#    sudo mv skaffold /usr/local/bin
+# 
+# 2. 或使用包管理器安装:
+#    - Linux: curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/latest/skaffold-linux-amd64 && \
+#            sudo install skaffold /usr/local/bin/
+#    - macOS: brew install skaffold
+#    - Windows: choco install skaffold
+#
+# 安装完成后执行 skaffold version 验证版本
+apiVersion: skaffold/v2beta5
+kind: Config
+build:
+  artifacts:
+    # 定义要构建的 Docker 镜像
+    - image: ${DOCKER_REGISTRY}/${APP_NAME}  # 镜像名称，使用环境变量
+      context: .                             # 构建上下文目录
+      docker:
+        dockerfile: Dockerfile               # 使用的 Dockerfile 路径
+  tagPolicy:
+    envTemplate:
+      template: "{{.VERSION}}"              # 镜像标签使用 VERSION 环境变量
+
+deploy:
+  # 开发环境下使用 kubectl 部署
+  kubectl:
+    manifests:
+      - k8s/*.yaml                          # Kubernetes 资源清单文件路径
+
+profiles:
+  # 发布环境配置
+  - name: release
+    build:
+      tagPolicy:
+        envTemplate:
+          template: "{{.VERSION}}"          # 发布版本的镜像标签
+    deploy:
+      # 使用 Helm 进行发布部署
+      # 通过 profiles.release 配置确定这是发布环境的部署
+      # 开发环境使用 kubectl 部署,发布环境使用 Helm 部署
+      # 可以通过 skaffold build -p release 指定使用发布环境配置
+      # 支持部署到多个 Kubernetes 集群
+      # Kubernetes 集群配置信息在 ~/.kube/config 文件中定义
+      # 包含了每个集群的:
+      # - 集群地址(server)
+      # - 认证信息(certificate-authority-data)
+      # - 用户凭证(client-certificate-data,client-key-data)
+      # 可以通过 kubectl config view 查看当前的集群配置
+      # 通过 kubectl config use-context <context> 切换目标集群
+      helm:
+        releases:
+          - name: ${APP_NAME}-prod               # 生产环境 release 名称
+            chartPath: charts/${APP_NAME}    
+            kubeContext: prod-cluster            # 生产集群 context
+            values:
+              image.repository: ${DOCKER_REGISTRY}/${APP_NAME}
+              image.tag: "{{.VERSION}}"
+              
+          - name: ${APP_NAME}-staging           # 预发布环境 release 名称 
+            chartPath: charts/${APP_NAME}
+            kubeContext: staging-cluster        # 预发布集群 context
+            values:
+              image.repository: ${DOCKER_REGISTRY}/${APP_NAME}
+              image.tag: "{{.VERSION}}"
+              
+          - name: ${APP_NAME}-dev              # 开发环境 release 名称
+            chartPath: charts/${APP_NAME}
+            kubeContext: dev-cluster           # 开发集群 context 
+            values:
+              image.repository: ${DOCKER_REGISTRY}/${APP_NAME}
+              image.tag: "{{.VERSION}}"
+# 使用说明:
+# 1. 安装 Jenkins X:
+#    jx install --provider=kubernetes
+#
+# 2. 导入本地项目:
+#    jx import --url https://your-repo-url.git
+#
+# 3. 创建新的版本:
+#    git tag v1.0.0
+#    git push origin v1.0.0
+#
+# 4. 触发构建:
+#    - 自动触发: 推送代码到远程仓库
+#    - 手动触发: jx start pipeline
+#
+# 5. 查看构建状态:
+#    jx get build logs
+#    jx get activities
+#
+# 6. 查看应用状态:
+#    jx get applications
+
+# Jenkins X 工作原理及组件说明:
+
+# 1. Jenkins X 核心组件:
+#    - Jenkins X (jx): 主控制器,负责流水线管理和自动化操作
+#    - Tekton: 云原生 CI/CD 引擎,执行具体的构建任务
+#    - Helm: 用于应用打包和部署的包管理工具
+#    - Skaffold: 容器镜像构建和部署工具
+#    - Prow: GitHub webhook 事件处理器(可选)
+
+# 2. 工作流程:
+#    a. 开发者提交代码或创建 PR
+#    b. Jenkins X 通过 webhook 感知代码变更:
+#       - GitHub/GitLab 等代码仓库在代码推送时触发 webhook
+#       - webhook 发送 HTTP POST 请求到 Jenkins X 的回调地址
+#       - 请求包含代码变更信息(分支、commit、作者等)
+#       - Jenkins X 的 webhook 处理器解析请求并记录变更
+#    c. 触发 Tekton Pipeline 执行构建任务
+#    d. Tekton 创建 Pod 运行构建步骤:
+#       - 拉取代码
+#       - 执行测试
+#       - 构建镜像(通过 Skaffold)
+#       - 推送镜像
+#    e. Jenkins X 使用 Helm 部署应用到 Kubernetes
+
+# 3. 组件关系:
+#    Jenkins X (控制层)
+#        ↓
+#    Tekton (执行层)
+#        ↓
+#    Skaffold (构建层) → Docker Registry
+#        ↓
+#    Helm (部署层) → Kubernetes
+
+# 4. 主要功能:
+#    - 自动化 CI/CD 流水线
+#    - 环境管理(开发、预发、生产)
+#    - 版本控制和发布管理
+#    - GitOps 工作流支持
+#    - 预览环境(Preview Environments)
+#    - 自动化升级和回滚
+
+# 5. 扩展功能:
+#    - ChatOps: 通过聊天机器人控制流水线
+#    - WebHooks: 自动触发构建和部署
+#    - 指标监控: Prometheus + Grafana
+#    - 日志管理: EFK Stack
+#    - 安全扫描: Anchore/Clair
+
+# 6. 最佳实践: (以 Go 项目为例)
+#    - 项目结构规范:
+#      /
+#      ├── cmd/                # 主程序入口
+#      ├── internal/          # 内部包
+#      ├── pkg/              # 可重用的公共包
+#      ├── api/              # API 定义
+#      ├── deploy/           # 部署相关配置
+#      │   ├── charts/      # Helm charts
+#      │   └── k8s/         # K8s 资源文件
+#      ├── Dockerfile       # 多阶段构建优化
+#      ├── jenkins-x.yml    # Jenkins X 配置
+#      ├── skaffold.yaml    # Skaffold 配置
+#      └── Makefile         # 构建脚本 - 用于简化和标准化构建命令
+#                          # 可选组件,但推荐使用:
+#                          # - 统一构建命令,提高团队协作效率
+#                          # - 简化复杂的构建步骤
+#                          # - 支持跨平台构建
+#                          # 也可用 shell 脚本或直接运行命令替代
+#
+#    - 代码质量保证:
+#      - 使用 golangci-lint 进行代码检查
+#      - 执行单元测试和集成测试
+#      - 设置测试覆盖率阈值
+#
+#    - 容器化最佳实践:
+#      - 使用多阶段构建减小镜像体积
+#      - 基于 alpine/distroless 构建基础镜像
+#      - 使用非 root 用户运行应用
+#      - 合理设置资源限制
+#
+#    - CI/CD 流水线设计:
+#      - PR 触发: 代码检查、单元测试
+#      - 主分支合并: 集成测试、构建镜像
+#      - 发布版本: 自动化部署、冒烟测试
+#
+#    - 监控和可观测性:
+#      - 集成 Prometheus 指标
+#      - 使用 OpenTelemetry 追踪
+#      - 结构化日志输出
+#      - 健康检查和就绪探针
+#    - 使用 GitOps 模式管理配置:
+#      - 所有配置存储在 Git 仓库中
+#      - 使用 Pull Request 管理配置变更
+#      - 配置变更自动同步到集群
+#      - 实现配置版本追踪和回滚
+#      - 通过 Argo CD 或 Flux 实现自动同步
+#
+#    - 实现环境隔离:
+#      - 开发、测试、预发、生产环境完全隔离
+#      - 每个环境使用独立的命名空间
+#      - 实现细粒度的访问控制(RBAC)
+#      - 资源配额和限制管理
+#      - 网络策略实现环境间隔离
+#
+#    - 自动化版本管理:
+#      - 语义化版本(Semantic Versioning)
+#      - 自动生成 CHANGELOG
+#      - 版本号与 Git Tag 关联
+#      - 自动化发布流程
+#      - 版本回滚机制
+#
+#    - 构建不可变镜像:
+#      - 使用确定性构建过程
+#      - 镜像签名和验证
+#      - 漏洞扫描集成
+#      - 镜像版本追踪
+#      - 实施镜像缓存策略
+#
+#    - 实施持续部署:
+#      - 自动化部署流程
+#      - 蓝绿部署/金丝雀发布
+#      - 自动化回滚机制
+#      - 部署后验证和测试
+#      - 监控和告警集成

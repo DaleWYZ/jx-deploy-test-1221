@@ -1,0 +1,32 @@
+apiVersion: skaffold/v2beta5
+kind: Config
+build:
+  artifacts:
+    - image: ${DOCKER_REGISTRY}/${APP_NAME}
+      context: .
+      docker:
+        dockerfile: Dockerfile
+  tagPolicy:
+    envTemplate:
+      template: "{{.VERSION}}"
+
+deploy:
+  kubectl:
+    manifests:
+      - deploy/k8s/*.yaml
+
+profiles:
+  - name: release
+    build:
+      tagPolicy:
+        envTemplate:
+          template: "{{.VERSION}}"
+    deploy:
+      helm:
+        releases:
+          - name: ${APP_NAME}
+            chartPath: deploy/charts/${APP_NAME}
+            values:
+              image:
+                repository: ${DOCKER_REGISTRY}/${APP_NAME}
+                tag: "{{.VERSION}}" 

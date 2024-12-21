@@ -1,0 +1,72 @@
+apiVersion: jenkins.io/v1
+kind: Pipeline
+metadata:
+  name: timelogger-pipeline
+spec:
+  type: tekton
+  agent:
+    label: jenkins-go
+    image: gcr.io/jenkinsxio/builder-go
+    resources:
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+      requests:
+        cpu: "0.5"
+        memory: "1Gi"
+  environment:
+    - name: DOCKER_REGISTRY
+      value: "harbor.corp.angoo.io"
+    - name: APP_NAME
+      value: "timelogger"      # 应用名称
+    - name: VERSION
+      value: "1.0.0"          # 初始版本号
+  
+  pipelines:
+    pullRequest:
+      pipeline:
+        agent:
+          image: gcr.io/jenkinsxio/builder-go
+        stages:
+          - name: ci
+            steps:
+              - name: unit-test
+                command: make test
+                env:
+                  - name: DOCKER_REGISTRY
+                    value: $(DOCKER_REGISTRY)
+                  - name: APP_NAME
+                    value: $(APP_NAME)
+                  - name: VERSION
+                    value: $(VERSION)
+                
+              - name: build
+                command: make build
+                
+              - name: build-container
+                command: skaffold build
+                
+    release:
+      pipeline:
+        agent:
+          image: gcr.io/jenkinsxio/builder-go
+        stages:
+          - name: build-and-push
+            steps:
+              - name: version
+                command: jx step next-version || exit 1
+                
+              - name: build
+                command: make build
+                
+              - name: build-container
+                command: |
+                  if [ ! -f VERSION ]; then
+                    echo "VERSION file not found"
+                    exit 1
+                  fi
+                  export VERSION=$(cat VERSION)
+                  skaffold build -p release
+                
+              - name: promote
+                command: jx promote -b --all-auto --timeout 1h --version \$(cat VERSION) 
