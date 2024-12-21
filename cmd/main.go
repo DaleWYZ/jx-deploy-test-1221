@@ -4,7 +4,7 @@ import (
     "log"
     "time"
     
-    "your-project/pkg/timelogger"
+    "github.com/DaleWYZ/jx-deploy-test-1221/pkg/timelogger"
 )
 
 func main() {
