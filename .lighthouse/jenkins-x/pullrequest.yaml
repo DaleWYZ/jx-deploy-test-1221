@@ -5,15 +5,26 @@ metadata:
     lighthouse.jenkins-x.io/prependSteps: "true"
   name: pullrequest
 spec:
+  workspaces:
+    - name: source
+      emptyDir: {}
   pipelineSpec:
+    workspaces:
+      - name: source
     tasks:
       - name: from-build-pack
+        workspaces:
+          - name: source
+            workspace: source
         taskSpec:
+          workspaces:
+            - name: source
           metadata:
             labels:
               app.kubernetes.io/name: 'timelogger'
           stepTemplate:
             image: golang:1.21
+            workingDir: $(workspaces.source.path)
             resources:
               requests:
                 cpu: 500m
@@ -22,6 +33,12 @@ spec:
                 cpu: "1"
                 memory: 2Gi
           steps:
+            - name: git-clone
+              image: alpine/git:v2.30.2
+              script: |
+                git clone $(params.repo_url) .
+                git checkout $(params.revision)
+                
             - name: test
               command:
                 - make
@@ -30,4 +47,4 @@ spec:
             - name: build
               command:
                 - make
-                - build 
+                - build
