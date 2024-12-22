@@ -63,9 +63,24 @@ spec:
                   skaffold build -p release
                 
               # 部署应用
-              - name: promote
+              # 这里通过 skaffold deploy -p release 命令使用 skaffold.yaml 中的 release profile
+              # release profile 中定义了使用 Helm 进行部署
+              # 开发环境使用 kubectl 方式部署,而 release 环境使用 Helm 方式部署
+              # 这是通过 skaffold.yaml 中的不同 profile 配置实现的:
+              # - 默认 profile: 使用 kubectl 部署
+              # - release profile: 使用 Helm 部署
+              - name: deploy
+                command: |
+                  export VERSION=$(cat VERSION)
+                  skaffold deploy -p release
+              # promote 步骤用于自动将应用程序提升到其他环境(如 staging/production)
+              # jx promote: Jenkins X 提升命令
+              # -b: 批处理模式,无需人工确认
+              # --all-auto: 自动提升到所有配置的环境
+              # --timeout 1h: 提升操作超时时间为1小时
+              # --version $(cat VERSION): 使用 VERSION 文件中的版本号
+              - name: promote  
                 command: jx promote -b --all-auto --timeout 1h --version \$(cat VERSION)
-
 ---
 # skaffold.yaml 配置说明
 # Skaffold 是一个命令行工具，用于 Kubernetes 应用的持续开发
