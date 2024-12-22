@@ -1,70 +1,99 @@
+# Tekton PipelineRun 资源定义
+# 用于处理正式版本发布的流水线配置
 apiVersion: tekton.dev/v1beta1
 kind: PipelineRun
 metadata:
   creationTimestamp: null
-  name: release
+  name: release    # 流水线运行的名称，用于发布流程
 spec:
   pipelineSpec:
     tasks:
+    # 主要任务定义，包含了从构建到发布的完整流程
     - name: from-build-pack
       resources: {}
       taskSpec:
         metadata: {}
+        # 定义所有步骤的通用模板配置
         stepTemplate:
+          # 使用 golang 1.21 作为基础镜像
           image: golang:1.21
           name: ""
+          # 定义资源限制和请求
           resources:
+            # 最小资源请求
             requests:
-              cpu: 400m
-              memory: 600Mi
+              cpu: 400m        # 请求 0.4 核 CPU
+              memory: 600Mi    # 请求 600MB 内存
+            # 最大资源限制
             limits:
-              cpu: "1"
-              memory: "2Gi"
+              cpu: "1"         # 最多使用 1 核 CPU
+              memory: "2Gi"    # 最多使用 2GB 内存
+          # 设置工作目录
           workingDir: /workspace/source
+          # 环境变量配置
           env:
+            # Docker 镜像仓库地址
             - name: DOCKER_REGISTRY
               value: harbor.corp.angoo.io
+            # 应用名称
             - name: APP_NAME
               value: timelogger
+        # 定义具体的执行步骤
         steps:
-        - image: alpine/git:v2.30.2
+        # 步骤1: 克隆代码
+        - image: alpine/git:v2.30.2  # 使用轻量级的 git 镜像
           name: git-clone
           script: |
-            git clone $(params.repo_url) .
-            git checkout $(params.revision)
+            git clone $(params.repo_url) .      # 克隆代码到当前目录
+            git checkout $(params.revision)      # 切换到指定的分支或提交
+
+        # 步骤2: 生成下一个版本号
         - name: next-version
-          image: gcr.io/jenkinsxio/jx-release-version:2.2.3
+          image: gcr.io/jenkinsxio/jx-release-version:2.2.3  # 使用 JX 版本管理工具
           command:
-            - jx-release-version
+            - jx-release-version    # 自动生成下一个版本号
+
+        # 步骤3: 构建应用
         - name: build-make-build
           command:
             - make
-            - build
+            - build    # 执行 make build 命令构建应用
+
+        # 步骤4: 构建生产环境容器镜像
         - name: build-container-build
           command:
             - skaffold
             - build
             - -p
-            - release
+            - release    # 使用 release 配置文件构建生产环境镜像
+
+        # 步骤5: 生成变更日志
         - name: promote-changelog
           command:
             - jx
             - changelog
-            - create
-            - --verbose
-            - --header-file=hack/changelog-header.md
-            - --version=$(VERSION)
-            - --rev=$(PULL_BASE_SHA)
-            - --output-markdown=changelog.md
-            - --update-release=false
+            - create           # 创建 changelog
+            - --verbose        # 显示详细信息
+            - --header-file=hack/changelog-header.md    # changelog 头文件
+            - --version=$(VERSION)                      # 使用当前版本
+            - --rev=$(PULL_BASE_SHA)                   # 使用当前提交
+            - --output-markdown=changelog.md            # 输出为 markdown 格式
+            - --update-release=false                   # 不更新已有的 release
+
+        # 步骤6: 部署到生产环境
         - name: promote-helm-release
           command:
             - jx
-            - promote
-            - --app timelogger
-            - --version $(VERSION)
-            - --env production
+            - promote          # 执行部署
+            - --app timelogger # 应用名称
+            - --version $(VERSION)  # 使用当前版本
+            - --env production      # 部署到生产环境
+
+  # Pod 相关配置
   podTemplate: {}
+  # 使用的服务账号
   serviceAccountName: tekton-bot
+  # 流水线超时时间（12小时）
   timeout: 12h0m0s
+# 状态字段（初始为空）
 status: {}
