@@ -6,14 +6,53 @@ metadata:
   creationTimestamp: null
   name: release    # 流水线运行的名称，用于发布流程
 spec:
+  # 定义流水线级别的参数
+  params:
+    - name: repo_url
+      value: https://github.com/DaleWYZ/jx-deploy-test-1221.git
+    - name: revision
+      value: master
+    - name: VERSION
+      value: $(tasks.next-version.results.version)
+    - name: PULL_BASE_SHA
+      value: $(params.revision)
   pipelineSpec:
+    # 声明流水线需要的参数
+    params:
+      - name: repo_url
+        type: string
+        description: "代码仓库的 URL"
+      - name: revision
+        type: string
+        description: "要检出的分支或提交"
+      - name: VERSION
+        type: string
+        description: "版本号"
+      - name: PULL_BASE_SHA
+        type: string
+        description: "当前提交的 SHA"
     tasks:
     # 主要任务定义，包含了从构建到发布的完整流程
     - name: from-build-pack
-      resources: {}
+      params:
+        - name: repo_url
+          value: $(params.repo_url)
+        - name: revision
+          value: $(params.revision)
+        - name: VERSION
+          value: $(params.VERSION)
+        - name: PULL_BASE_SHA
+          value: $(params.PULL_BASE_SHA)
       taskSpec:
-        metadata: {}
-        # 定义所有步骤的通用模板配置
+        params:
+          - name: repo_url
+            type: string
+          - name: revision
+            type: string
+          - name: VERSION
+            type: string
+          - name: PULL_BASE_SHA
+            type: string
         stepTemplate:
           # 使用 golang 1.21 作为基础镜像
           image: golang:1.21
@@ -38,6 +77,9 @@ spec:
             # 应用名称
             - name: APP_NAME
               value: timelogger
+            # 版本号
+            - name: VERSION
+              value: $(params.VERSION)
         # 定义具体的执行步骤
         steps:
         # 步骤1: 克隆代码
