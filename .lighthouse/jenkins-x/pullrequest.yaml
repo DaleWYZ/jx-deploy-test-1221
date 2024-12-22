@@ -1,67 +1,52 @@
 apiVersion: tekton.dev/v1beta1
 kind: PipelineRun
 metadata:
-  annotations:
-    lighthouse.jenkins-x.io/prependSteps: "true"
+  creationTimestamp: null
   name: pullrequest
 spec:
-  params:
-    - name: repo_url
-      value: https://github.com/DaleWYZ/jx-deploy-test-1221.git
-    - name: revision
-      value: $(params.pull_base_ref)
-  workspaces:
-    - name: source
-      emptyDir: {}
   pipelineSpec:
-    params:
-      - name: repo_url
-        type: string
-      - name: revision
-        type: string
-      - name: pull_base_ref
-        type: string
-    workspaces:
-      - name: source
     tasks:
-      - name: from-build-pack
-        params:
-          - name: repo_url
-            value: $(params.repo_url)
-          - name: revision
-            value: $(params.revision)
-        workspaces:
-          - name: source
-            workspace: source
-        taskSpec:
-          params:
-            - name: repo_url
-              type: string
-            - name: revision
-              type: string
-          workspaces:
-            - name: source
-          metadata:
-            labels:
-              app.kubernetes.io/name: 'timelogger'
-          stepTemplate:
-            image: golang:1.21
-            workingDir: $(workspaces.source.path)
-            resources:
-              requests:
-                cpu: 500m
-                memory: 1Gi
-              limits:
-                cpu: "1"
-                memory: 2Gi
-          steps:
-            - name: git-clone
-              image: alpine/git:v2.30.2
-              script: |
-                git clone $(params.repo_url) .
-                git checkout $(params.revision)
-                
-            - name: build
-              command:
-                - make
-                - build
+    - name: from-build-pack
+      resources: {}
+      taskSpec:
+        metadata: {}
+        stepTemplate:
+          image: golang:1.21
+          name: ""
+          resources:
+            requests:
+              cpu: 400m
+              memory: 600Mi
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+          workingDir: /workspace/source
+          env:
+            - name: DOCKER_REGISTRY
+              value: harbor.corp.angoo.io
+            - name: APP_NAME
+              value: timelogger
+        steps:
+        - image: alpine/git:v2.30.2
+          name: git-clone
+          script: |
+            git clone $(params.repo_url) .
+            git checkout $(params.revision)
+        - name: build-make-linux
+          command:
+            - make
+            - build
+        - name: build-container-build
+          command:
+            - skaffold
+            - build
+        - name: promote-jx-preview
+          command:
+            - jx
+            - preview
+            - --app timelogger
+            - --dir ../..
+  podTemplate: {}
+  serviceAccountName: tekton-bot
+  timeout: 12h0m0s
+status: {}
