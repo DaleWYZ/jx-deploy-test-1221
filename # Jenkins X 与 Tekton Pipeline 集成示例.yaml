@@ -10,9 +10,9 @@ metadata:
   name: local-app-pipeline
 spec:
   type: tekton
-  agent:
-    label: jenkins-go
-  environment:
+  agent:  # agent 定义了执行流水线任务的运行环境
+    label: jenkins-go  # 该标签需要打在 Kubernetes 集群中用于运行 Jenkins X 构建任务的节点上,通过 kubectl label node <node-name> jenkins=jenkins-go 命令设置
+  environment:  # environment 定义流水线运行时的环境变量
     - name: DOCKER_REGISTRY
       value: "your-registry"
     - name: APP_NAME
