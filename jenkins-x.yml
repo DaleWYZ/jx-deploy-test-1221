@@ -1,103 +1,45 @@
-apiVersion: tekton.dev/v1beta1
-kind: Pipeline
-metadata:
-  name: timelogger-pipeline
-spec:
-  workspaces:
-    - name: shared-workspace
-      emptyDir: {}
-  params:
-    - name: DOCKER_REGISTRY
-      type: string
-      default: "harbor.corp.angoo.io"
-    - name: APP_NAME
-      type: string
-      default: "timelogger"
-    - name: VERSION
-      type: string
-      default: "1.0.0"
-  tasks:
-    - name: tests
-      taskRef:
-        name: golang-test
-      workspaces:
-        - name: source
-          workspace: shared-workspace
-      params:
-        - name: ARGS
-          value: ["make", "test"]
-          
-    - name: build
-      runAfter:
-        - tests
-      taskRef:
-        name: golang-build
-      workspaces:
-        - name: source
-          workspace: shared-workspace
-      params:
-        - name: ARGS
-          value: ["make", "build"]
-          
-    - name: version
-      runAfter:
-        - build
-      taskRef:
-        name: jx-version
-      params:
-        - name: VERSION_COMMAND
-          value: "jx step next-version"
-          
-    - name: container-build
-      runAfter:
-        - version
-      taskRef:
-        name: skaffold-build
-      workspaces:
-        - name: source
-          workspace: shared-workspace
-      params:
-        - name: DOCKERFILE
-          value: "./Dockerfile"
-        - name: CONTEXT
-          value: "."
-        - name: PROFILE
-          value: "release"
-        - name: IMAGE
-          value: "$(params.DOCKER_REGISTRY)/$(params.APP_NAME):$(params.VERSION)"
-          
-    - name: promote
-      runAfter:
-        - container-build
-      taskRef:
-        name: jx-promote
-      params:
-        - name: VERSION
-          value: $(params.VERSION)
-        - name: OPTS
-          value: "-b --all-auto --timeout 1h"
+buildPack: go
+pipelineConfig:
+  pipelines:
+    pullRequest:
+      pipeline:
+        stages:
+          - name: ci
+            steps:
+              - name: test
+                command: make test
+              - name: build
+                command: make build
+    release:
+      pipeline:
+        stages:
+          - name: release
+            steps:
+              - name: test
+                command: make test
+              - name: build
+                command: make build
+              - name: container-build
+                command: skaffold build
+                env:
+                  - name: DOCKER_REGISTRY
+                    value: harbor.corp.angoo.io
+                  - name: APP_NAME
+                    value: timelogger
+              - name: promote
+                command: jx promote -b --all-auto --timeout 1h
+                env:
+                  - name: VERSION
+                    value: ${VERSION}
 
----
 # 资源限制配置
-apiVersion: tekton.dev/v1beta1
-kind: PipelineRun
-metadata:
-  generateName: timelogger-pipeline-run-
-spec:
-  pipelineRef:
-    name: timelogger-pipeline
-  workspaces:
-    - name: shared-workspace
-      emptyDir: {}
-  podTemplate:
-    securityContext:
-      fsGroup: 65532
-    containers:
-      - name: build
-        resources:
-          limits:
-            cpu: "1"
-            memory: "2Gi"
-          requests:
-            cpu: "0.5"
-            memory: "1Gi"
+pod:
+  containers:
+    - name: build
+      resources:
+        limits:
+          cpu: "1"
+          memory: "2Gi"
+        requests:
+          cpu: "0.5"
+          memory: "1Gi"
