@@ -1,72 +1,103 @@
-apiVersion: jenkins.io/v1
+apiVersion: tekton.dev/v1beta1
 kind: Pipeline
 metadata:
   name: timelogger-pipeline
 spec:
-  type: tekton
-  agent:
-    label: jenkins-go
-    image: gcr.io/jenkinsxio/builder-go
-    resources:
-      limits:
-        cpu: "1"
-        memory: "2Gi"
-      requests:
-        cpu: "0.5"
-        memory: "1Gi"
-  environment:
+  workspaces:
+    - name: shared-workspace
+      emptyDir: {}
+  params:
     - name: DOCKER_REGISTRY
-      value: "harbor.corp.angoo.io"
+      type: string
+      default: "harbor.corp.angoo.io"
     - name: APP_NAME
-      value: "timelogger"      # 应用名称
+      type: string
+      default: "timelogger"
     - name: VERSION
-      value: "1.0.0"          # 初始版本号
-  
-  pipelines:
-    pullRequest:
-      pipeline:
-        agent:
-          image: gcr.io/jenkinsxio/builder-go
-        stages:
-          - name: ci
-            steps:
-              - name: unit-test
-                command: make test
-                env:
-                  - name: DOCKER_REGISTRY
-                    value: $(DOCKER_REGISTRY)
-                  - name: APP_NAME
-                    value: $(APP_NAME)
-                  - name: VERSION
-                    value: $(VERSION)
-                
-              - name: build
-                command: make build
-                
-              - name: build-container
-                command: skaffold build
-                
-    release:
-      pipeline:
-        agent:
-          image: gcr.io/jenkinsxio/builder-go
-        stages:
-          - name: build-and-push
-            steps:
-              - name: version
-                command: jx step next-version || exit 1
-                
-              - name: build
-                command: make build
-                
-              - name: build-container
-                command: |
-                  if [ ! -f VERSION ]; then
-                    echo "VERSION file not found"
-                    exit 1
-                  fi
-                  export VERSION=$(cat VERSION)
-                  skaffold build -p release
-                
-              - name: promote
-                command: jx promote -b --all-auto --timeout 1h --version \$(cat VERSION) 
+      type: string
+      default: "1.0.0"
+  tasks:
+    - name: tests
+      taskRef:
+        name: golang-test
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: ARGS
+          value: ["make", "test"]
+          
+    - name: build
+      runAfter:
+        - tests
+      taskRef:
+        name: golang-build
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: ARGS
+          value: ["make", "build"]
+          
+    - name: version
+      runAfter:
+        - build
+      taskRef:
+        name: jx-version
+      params:
+        - name: VERSION_COMMAND
+          value: "jx step next-version"
+          
+    - name: container-build
+      runAfter:
+        - version
+      taskRef:
+        name: skaffold-build
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: DOCKERFILE
+          value: "./Dockerfile"
+        - name: CONTEXT
+          value: "."
+        - name: PROFILE
+          value: "release"
+        - name: IMAGE
+          value: "$(params.DOCKER_REGISTRY)/$(params.APP_NAME):$(params.VERSION)"
+          
+    - name: promote
+      runAfter:
+        - container-build
+      taskRef:
+        name: jx-promote
+      params:
+        - name: VERSION
+          value: $(params.VERSION)
+        - name: OPTS
+          value: "-b --all-auto --timeout 1h"
+
+---
+# 资源限制配置
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  generateName: timelogger-pipeline-run-
+spec:
+  pipelineRef:
+    name: timelogger-pipeline
+  workspaces:
+    - name: shared-workspace
+      emptyDir: {}
+  podTemplate:
+    securityContext:
+      fsGroup: 65532
+    containers:
+      - name: build
+        resources:
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+          requests:
+            cpu: "0.5"
+            memory: "1Gi"
