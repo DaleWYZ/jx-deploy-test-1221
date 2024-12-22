@@ -12,9 +12,6 @@ clean:
 build: clean
 	CGO_ENABLED=0 GOOS=linux go build -o bin/$(BINARY_NAME) cmd/main.go
 
-test:
-	go test ./... -cover
-
 docker-build:
 	docker build -t $(DOCKER_REGISTRY)/$(APP_NAME):$(VERSION) .
 

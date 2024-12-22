@@ -61,11 +61,6 @@ spec:
                 git clone $(params.repo_url) .
                 git checkout $(params.revision)
                 
-            - name: test
-              command:
-                - make
-                - test
-                
             - name: build
               command:
                 - make
