@@ -12,8 +12,6 @@ spec:
       value: https://github.com/DaleWYZ/jx-deploy-test-1221.git
     - name: revision
       value: master
-    - name: VERSION
-      value: $(tasks.next-version.results.version)
     - name: PULL_BASE_SHA
       value: $(params.revision)
   pipelineSpec:
@@ -25,12 +23,11 @@ spec:
       - name: revision
         type: string
         description: "要检出的分支或提交"
-      - name: VERSION
-        type: string
-        description: "版本号"
       - name: PULL_BASE_SHA
         type: string
         description: "当前提交的 SHA"
+    workspaces:
+      - name: shared-data
     tasks:
     # 主要任务定义，包含了从构建到发布的完整流程
     - name: from-build-pack
@@ -39,17 +36,19 @@ spec:
           value: $(params.repo_url)
         - name: revision
           value: $(params.revision)
-        - name: VERSION
-          value: $(params.VERSION)
         - name: PULL_BASE_SHA
           value: $(params.PULL_BASE_SHA)
+      workspaces:
+        - name: shared-data
+          workspace: shared-data
       taskSpec:
+        workspaces:
+          - name: shared-data
+            description: "用于在步骤之间共享数据的工作空间"
         params:
           - name: repo_url
             type: string
           - name: revision
-            type: string
-          - name: VERSION
             type: string
           - name: PULL_BASE_SHA
             type: string
@@ -68,7 +67,7 @@ spec:
               cpu: "1"         # 最多使用 1 核 CPU
               memory: "2Gi"    # 最多使用 2GB 内存
           # 设置工作目录
-          workingDir: /workspace/source
+          workingDir: $(workspaces.shared-data.path)
           # 环境变量配置
           env:
             # Docker 镜像仓库地址
@@ -77,9 +76,6 @@ spec:
             # 应用名称
             - name: APP_NAME
               value: timelogger
-            # 版本号
-            - name: VERSION
-              value: $(params.VERSION)
         # 定义具体的执行步骤
         steps:
         # 步骤1: 克隆代码
@@ -92,8 +88,9 @@ spec:
         # 步骤2: 生成下一个版本号
         - name: next-version
           image: gcr.io/jenkinsxio/jx-release-version:2.2.3  # 使用 JX 版本管理工具
-          command:
-            - jx-release-version    # 自动生成下一个版本号
+          script: |
+            # 生成版本号并保存到文件
+            jx-release-version > $(workspaces.shared-data.path)/VERSION
 
         # 步骤3: 构建应用
         - name: build-make-build
@@ -103,34 +100,35 @@ spec:
 
         # 步骤4: 构建生产环境容器镜像
         - name: build-container-build
-          command:
-            - skaffold
-            - build
-            - -p
-            - release    # 使用 release 配置文件构建生产环境镜像
+          script: |
+            export VERSION=$(cat $(workspaces.shared-data.path)/VERSION)
+            skaffold build -p release
 
         # 步骤5: 生成变更日志
         - name: promote-changelog
-          command:
-            - jx
-            - changelog
-            - create           # 创建 changelog
-            - --verbose        # 显示详细信息
-            - --header-file=hack/changelog-header.md    # changelog 头文件
-            - --version=$(VERSION)                      # 使用当前版本
-            - --rev=$(PULL_BASE_SHA)                   # 使用当前提交
-            - --output-markdown=changelog.md            # 输出为 markdown 格式
-            - --update-release=false                   # 不更新已有的 release
+          script: |
+            export VERSION=$(cat $(workspaces.shared-data.path)/VERSION)
+            jx changelog create \
+              --verbose \
+              --header-file=hack/changelog-header.md \
+              --version=$VERSION \
+              --rev=$(params.PULL_BASE_SHA) \
+              --output-markdown=changelog.md \
+              --update-release=false
 
         # 步骤6: 部署到生产环境
         - name: promote-helm-release
-          command:
-            - jx
-            - promote          # 执行部署
-            - --app timelogger # 应用名称
-            - --version $(VERSION)  # 使用当前版本
-            - --env production      # 部署到生产环境
+          script: |
+            export VERSION=$(cat $(workspaces.shared-data.path)/VERSION)
+            jx promote \
+              --app timelogger \
+              --version $VERSION \
+              --env production
 
+  # 工作空间配置
+  workspaces:
+    - name: shared-data
+      emptyDir: {}
   # Pod 相关配置
   podTemplate: {}
   # 使用的服务账号
