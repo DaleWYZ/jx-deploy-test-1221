@@ -1,0 +1,55 @@
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  annotations:
+    lighthouse.jenkins-x.io/prependSteps: "true"
+  name: release
+spec:
+  pipelineSpec:
+    tasks:
+      - name: from-build-pack
+        taskSpec:
+          metadata:
+            labels:
+              app.kubernetes.io/name: 'timelogger'
+          stepTemplate:
+            image: golang:1.21
+            resources:
+              requests:
+                cpu: 500m
+                memory: 1Gi
+              limits:
+                cpu: "1"
+                memory: 2Gi
+            env:
+              - name: DOCKER_REGISTRY
+                value: harbor.corp.angoo.io
+              - name: APP_NAME
+                value: timelogger
+          steps:
+            - name: test
+              command:
+                - make
+                - test
+                
+            - name: build
+              command:
+                - make
+                - build
+                
+            - name: container-build
+              command:
+                - skaffold
+                - build
+                
+            - name: promote
+              command:
+                - jx
+                - promote
+                - -b
+                - --all-auto
+                - --timeout
+                - 1h
+              env:
+                - name: VERSION
+                  value: ${VERSION} 
