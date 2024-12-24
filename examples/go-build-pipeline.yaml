@@ -1,0 +1,162 @@
+# Go 项目构建流水线示例
+# 这是一个完整的 Tekton PipelineRun 示例，用于构建 Go 项目
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  name: go-project-build    # 流水线运行的名称
+spec:
+  # 定义流水线级别的参数
+  params:
+    - name: REPO_URL        # 代码仓库地址
+      value: "https://github.com/your-org/your-project.git"
+    - name: BRANCH          # 分支名称
+      value: "main"
+    - name: GO_VERSION      # Go 版本
+      value: "1.21"
+    - name: APP_NAME        # 应用名称
+      value: "your-app"
+    - name: DOCKER_REGISTRY # Docker 仓库地址
+      value: "your-registry.io"
+
+  # 定义工作空间
+  workspaces:
+    - name: shared-data    # 共享数据的工作空间
+      volumeClaimTemplate:  # 使用 PVC 模板
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+    - name: docker-config   # Docker 配置工作空间
+      secret:
+        secretName: docker-config  # 存储 Docker 认证信息的 Secret
+
+  pipelineSpec:
+    # 声明流水线参数
+    params:
+      - name: REPO_URL
+        type: string
+        description: "Git 仓库地址"
+      - name: BRANCH
+        type: string
+        description: "Git 分支"
+      - name: GO_VERSION
+        type: string
+        description: "Go 版本"
+      - name: APP_NAME
+        type: string
+        description: "应用名称"
+      - name: DOCKER_REGISTRY
+        type: string
+        description: "Docker 仓库地址"
+
+    # 声明工作空间
+    workspaces:
+      - name: shared-data
+      - name: docker-config
+
+    # 定义任务
+    tasks:
+      # 任务1: 克隆代码
+      - name: git-clone
+        workspaces:
+          - name: output
+            workspace: shared-data
+        taskSpec:
+          workspaces:
+            - name: output
+          steps:
+            - name: clone
+              image: alpine/git:v2.30.2
+              workingDir: $(workspaces.output.path)
+              script: |
+                git clone $(params.REPO_URL) .
+                git checkout $(params.BRANCH)
+
+      # 任务2: 代码检查
+      - name: code-lint
+        runAfter: ["git-clone"]
+        workspaces:
+          - name: source
+            workspace: shared-data
+        taskSpec:
+          workspaces:
+            - name: source
+          steps:
+            - name: golangci-lint
+              image: golangci/golangci-lint:latest
+              workingDir: $(workspaces.source.path)
+              command: ["golangci-lint"]
+              args: ["run", "./..."]
+
+      # 任务3: 单元测试
+      - name: unit-test
+        runAfter: ["git-clone"]
+        workspaces:
+          - name: source
+            workspace: shared-data
+        taskSpec:
+          workspaces:
+            - name: source
+          steps:
+            - name: test
+              image: golang:$(params.GO_VERSION)
+              workingDir: $(workspaces.source.path)
+              script: |
+                go test -v -cover ./...
+
+      # 任务4: 构建应用
+      - name: build
+        runAfter: ["code-lint", "unit-test"]
+        workspaces:
+          - name: source
+            workspace: shared-data
+        taskSpec:
+          workspaces:
+            - name: source
+          steps:
+            - name: build
+              image: golang:$(params.GO_VERSION)
+              workingDir: $(workspaces.source.path)
+              env:
+                - name: CGO_ENABLED
+                  value: "0"
+                - name: GOOS
+                  value: "linux"
+                - name: GOARCH
+                  value: "amd64"
+              script: |
+                go build -o bin/$(params.APP_NAME) ./cmd/main.go
+
+      # 任务5: 构建镜像
+      - name: docker-build
+        runAfter: ["build"]
+        workspaces:
+          - name: source
+            workspace: shared-data
+          - name: dockerconfig
+            workspace: docker-config
+        taskSpec:
+          workspaces:
+            - name: source
+            - name: dockerconfig
+          steps:
+            - name: build-and-push
+              image: gcr.io/kaniko-project/executor:latest
+              workingDir: $(workspaces.source.path)
+              env:
+                - name: DOCKER_CONFIG
+                  value: $(workspaces.dockerconfig.path)
+              command:
+                - /kaniko/executor
+              args:
+                - --context=$(workspaces.source.path)
+                - --dockerfile=$(workspaces.source.path)/Dockerfile
+                - --destination=$(params.DOCKER_REGISTRY)/$(params.APP_NAME):latest
+
+  # 超时设置
+  timeout: 1h0m0s
+  
+  # 服务账号
+  serviceAccountName: pipeline-bot 

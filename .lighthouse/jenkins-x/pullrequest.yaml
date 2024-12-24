@@ -7,7 +7,7 @@ metadata:
   name: pullrequest  # 流水线运行的名称
 spec:
   params:
-    - name: REPO_URL
+    - name: repo_url
       value: "https://github.com/DaleWYZ/jx-deploy-test-1221.git"
     - name: revision
       value: $(params.pull_base_ref)
@@ -18,7 +18,7 @@ spec:
       emptyDir: {}
   pipelineSpec:
     params:
-      - name: REPO_URL
+      - name: repo_url
         type: string
         description: "代码仓库的 URL"
       - name: revision
@@ -32,8 +32,8 @@ spec:
     tasks:
     - name: from-build-pack
       params:
-        - name: REPO_URL
-          value: $(params.REPO_URL)
+        - name: repo_url
+          value: $(params.repo_url)
         - name: revision
           value: $(params.revision)
       workspaces:
@@ -43,7 +43,7 @@ spec:
           workspace: shared-data
       taskSpec:
         params:
-          - name: REPO_URL
+          - name: repo_url
             type: string
           - name: revision
             type: string
@@ -69,7 +69,7 @@ spec:
         - image: alpine/git:v2.30.2
           name: git-clone
           script: |
-            git clone $(params.REPO_URL) .
+            git clone $(params.repo_url) .
             git checkout $(params.revision)
         
         - name: build-make-linux
