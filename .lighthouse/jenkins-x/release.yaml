@@ -8,8 +8,6 @@ metadata:
 spec:
   # 定义流水线级别的参数
   params:
-    - name: repo_url
-      value: https://github.com/DaleWYZ/jx-deploy-test-1221.git
     - name: revision
       value: master
     - name: PULL_BASE_SHA
@@ -17,9 +15,6 @@ spec:
   pipelineSpec:
     # 声明流水线需要的参数
     params:
-      - name: repo_url
-        type: string
-        description: "代码仓库的 URL"
       - name: revision
         type: string
         description: "要检出的分支或提交"
@@ -32,8 +27,6 @@ spec:
     # 主要任务定义，包含了从构建到发布的完整流程
     - name: from-build-pack
       params:
-        - name: repo_url
-          value: $(params.repo_url)
         - name: revision
           value: $(params.revision)
         - name: PULL_BASE_SHA
@@ -46,8 +39,6 @@ spec:
           - name: shared-data
             description: "用于在步骤之间共享数据的工作空间"
         params:
-          - name: repo_url
-            type: string
           - name: revision
             type: string
           - name: PULL_BASE_SHA
@@ -82,7 +73,7 @@ spec:
         - image: alpine/git:v2.30.2  # 使用轻量级的 git 镜像
           name: git-clone
           script: |
-            git clone $(params.repo_url) .      # 克隆代码到当前目录
+            git clone $(params.REPO_URL) .      # 使用 Jenkins X 提供的 REPO_URL
             git checkout $(params.revision)      # 切换到指定的分支或提交
 
         # 步骤2: 生成下一个版本号
