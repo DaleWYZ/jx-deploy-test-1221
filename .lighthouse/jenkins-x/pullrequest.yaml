@@ -7,8 +7,8 @@ metadata:
   name: pullrequest  # 流水线运行的名称
 spec:
   params:
-    - name: repo_url
-      value: https://github.com/DaleWYZ/jx-deploy-test-1221.git
+    - name: REPO_URL
+      value: "https://github.com/DaleWYZ/jx-deploy-test-1221.git"
     - name: revision
       value: $(params.pull_base_ref)
     - name: pull_base_ref
@@ -38,6 +38,8 @@ spec:
           value: $(params.revision)
       workspaces:
         - name: shared-data
+          # workspace表示任务使用的工作空间名称
+          # 工作空间名称可以随便起，但需要与上面定义的名称一致
           workspace: shared-data
       taskSpec:
         params:
