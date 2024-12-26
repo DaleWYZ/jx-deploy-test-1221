@@ -4,91 +4,44 @@ metadata:
   creationTimestamp: null
   name: release
 spec:
-  params:
-    - name: REPO_URL
-      value: https://github.com/$(params.REPO_OWNER)/$(params.REPO_NAME).git
-    - name: revision
-      value: $(params.BRANCH_NAME)
-    - name: DOCKER_REGISTRY
-      value: harbor.corp.angoo.io
-    - name: PUSH_CONTAINER_REGISTRY
-      value: harbor.corp.angoo.io
-    - name: DOCKER_REGISTRY_ORG
-      value: timelogger
   pipelineSpec:
-    params:
-      - name: REPO_URL
-        type: string
-      - name: revision
-        type: string
-      - name: DOCKER_REGISTRY
-        type: string
-      - name: PUSH_CONTAINER_REGISTRY
-        type: string
-      - name: DOCKER_REGISTRY_ORG
-        type: string
     tasks:
-      - name: from-build-pack
-        params:
-          - name: REPO_URL
-            value: $(params.REPO_URL)
-          - name: revision
-            value: $(params.revision)
-          - name: DOCKER_REGISTRY
-            value: $(params.DOCKER_REGISTRY)
-          - name: PUSH_CONTAINER_REGISTRY
-            value: $(params.PUSH_CONTAINER_REGISTRY)
-          - name: DOCKER_REGISTRY_ORG
-            value: $(params.DOCKER_REGISTRY_ORG)
-        taskSpec:
-          params:
-            - name: REPO_URL
-              type: string
-            - name: revision
-              type: string
-            - name: DOCKER_REGISTRY
-              type: string
-            - name: PUSH_CONTAINER_REGISTRY
-              type: string
-            - name: DOCKER_REGISTRY_ORG
-              type: string
-          steps:
-            - name: git-clone
-              image: alpine/git:v2.30.2
-              script: |
-                git clone $(params.REPO_URL) .
-                git checkout $(params.revision)
-
-            - name: build
-              image: golang:1.21
-              env:
-                - name: DOCKER_REGISTRY
-                  value: $(params.DOCKER_REGISTRY)
-                - name: PUSH_CONTAINER_REGISTRY
-                  value: $(params.PUSH_CONTAINER_REGISTRY)
-                - name: DOCKER_REGISTRY_ORG
-                  value: $(params.DOCKER_REGISTRY_ORG)
-              script: |
-                make build
-
-            - name: container-build
-              image: gcr.io/kaniko-project/executor:latest
-              script: |
-                /kaniko/executor \
-                  --context=. \
-                  --dockerfile=Dockerfile \
-                  --destination=$(params.DOCKER_REGISTRY)/$(params.DOCKER_REGISTRY_ORG)/timelogger:latest
-
-            - name: promote
-              image: gcr.io/jenkinsxio/jx:latest
-              script: |
-                jx promote \
-                  --app timelogger \
-                  --version latest \
-                  --env staging \
-                  --batch-mode
-
+    - name: from-build-pack
+      resources: {}
+      taskSpec:
+        metadata: {}
+        stepTemplate:
+          image: uses:jenkins-x/jx3-pipeline-catalog/tasks/go/release.yaml@versionStream
+          name: ""
+          resources:
+            # override limits for all containers here
+            limits: {}
+          workingDir: /workspace/source
+        steps:
+        - image: uses:jenkins-x/jx3-pipeline-catalog/tasks/git-clone/git-clone.yaml@versionStream
+          name: ""
+          resources: {}
+        - name: next-version
+          resources: {}
+        - name: jx-variables
+          resources:
+            # override requests for the pod here
+            requests:
+              cpu: 400m
+              memory: 600Mi
+        - name: build-make-build
+          resources: {}
+        - name: check-registry
+          resources: {}
+        - name: build-container-build
+          resources: {}
+        - name: promote-changelog
+          resources: {}
+        - name: promote-helm-release
+          resources: {}
+        - name: promote-jx-promote
+          resources: {}
   podTemplate: {}
   serviceAccountName: tekton-bot
-  timeout: 1h0m0s
+  timeout: 12h0m0s
 status: {}
