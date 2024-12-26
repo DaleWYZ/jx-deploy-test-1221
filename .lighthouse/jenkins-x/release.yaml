@@ -1,30 +1,12 @@
 # Tekton PipelineRun 资源定义
-# 用于处理正式版本发布的流水线配置
 apiVersion: tekton.dev/v1beta1
 kind: PipelineRun
 metadata:
-  creationTimestamp: null
   name: release
 spec:
-  params:
-    - name: revision
-      value: master
-    - name: PULL_BASE_SHA
-      value: $(params.revision)
   pipelineSpec:
-    params:
-      - name: revision
-        type: string
-        description: "要检出的分支或提交"
-      - name: PULL_BASE_SHA
-        type: string
-        description: "当前提交的 SHA"
-    workspaces:
-      - name: shared-data
-        description: "用于在步骤之间共享数据的工作空间"
     tasks:
-      # 设置阶段
-      - name: setup
+      - name: from-build-pack
         taskSpec:
           steps:
             - name: git-clone
@@ -33,75 +15,35 @@ spec:
                 git clone $(params.REPO_URL) .
                 git checkout $(params.revision)
 
-      # 版本准备阶段
-      - name: version
-        runAfter: ["setup"]
-        taskSpec:
-          steps:
-            - name: next-version
-              image: gcr.io/jenkinsxio/jx-release-version:2.2.3
-              script: |
-                echo $(jx-release-version) > VERSION
-                cat VERSION
-
-      # 构建阶段
-      - name: build
-        runAfter: ["version"]
-        taskSpec:
-          steps:
-            - name: build-binary
+            - name: build
               image: golang:1.21
               script: |
                 make build
 
-      # 容器构建阶段
-      - name: container
-        runAfter: ["build"]
-        taskSpec:
-          steps:
-            - name: build-container
+            - name: container-build
               image: gcr.io/kaniko-project/executor:latest
+              env:
+                - name: DOCKER_REGISTRY
+                  value: harbor.corp.angoo.io
+                - name: APP_NAME
+                  value: timelogger
               script: |
-                VERSION=$(cat VERSION)
                 /kaniko/executor \
                   --context=. \
                   --dockerfile=Dockerfile \
-                  --destination=$(params.DOCKER_REGISTRY)/$(params.APP_NAME):$VERSION
+                  --destination=${DOCKER_REGISTRY}/${APP_NAME}:latest
 
-      # 发布阶段
-      - name: promote
-        runAfter: ["container"]
-        taskSpec:
-          steps:
-            - name: changelog
+            - name: promote
               image: gcr.io/jenkinsxio/jx:latest
+              env:
+                - name: APP_NAME
+                  value: timelogger
               script: |
-                VERSION=$(cat VERSION)
-                jx changelog create \
-                  --version $VERSION \
-                  --rev $(params.PULL_BASE_SHA) \
-                  --output-markdown changelog.md \
-                  --update-release=false
-
-            - name: promote-staging
-              image: gcr.io/jenkinsxio/jx:latest
-              script: |
-                VERSION=$(cat VERSION)
                 jx promote \
-                  --app $(params.APP_NAME) \
-                  --version $VERSION \
+                  --app ${APP_NAME} \
+                  --version latest \
                   --env staging \
                   --batch-mode
-
-  workspaces:
-    - name: shared-data
-      emptyDir: {}
-
-  podTemplate:
-    securityContext:
-      fsGroup: 65534
-    nodeSelector:
-      kubernetes.io/os: linux
 
   serviceAccountName: tekton-bot
   timeout: 1h0m0s

@@ -1,30 +1,12 @@
 # Tekton PipelineRun 资源定义
-# 用于处理 Pull Request 的流水线配置
 apiVersion: tekton.dev/v1beta1
 kind: PipelineRun
 metadata:
-  creationTimestamp: null
   name: pullrequest
 spec:
-  params:
-    - name: revision
-      value: $(params.pull_base_ref)
-    - name: pull_base_ref
-      value: main
   pipelineSpec:
-    params:
-      - name: revision
-        type: string
-        description: "要检出的分支或提交"
-      - name: pull_base_ref
-        type: string
-        description: "PR 的基础分支"
-    workspaces:
-      - name: shared-data
-        description: "用于在步骤之间共享数据的工作空间"
     tasks:
-      # 设置阶段
-      - name: setup
+      - name: from-build-pack
         taskSpec:
           steps:
             - name: git-clone
@@ -33,59 +15,33 @@ spec:
                 git clone $(params.REPO_URL) .
                 git checkout $(params.revision)
 
-      # 构建前阶段
-      - name: pre-build
-        runAfter: ["setup"]
-        taskSpec:
-          steps:
-            - name: check-go
-              image: golang:1.21
-              script: |
-                go version
-                go env
-
-      # 构建阶段
-      - name: build
-        runAfter: ["pre-build"]
-        taskSpec:
-          steps:
-            - name: build-binary
+            - name: build
               image: golang:1.21
               script: |
                 make build
 
-      # 构建后阶段
-      - name: post-build
-        runAfter: ["build"]
-        taskSpec:
-          steps:
-            - name: build-container
+            - name: container-build
               image: gcr.io/kaniko-project/executor:latest
+              env:
+                - name: DOCKER_REGISTRY
+                  value: harbor.corp.angoo.io
+                - name: APP_NAME
+                  value: timelogger
               script: |
                 /kaniko/executor \
                   --context=. \
                   --dockerfile=Dockerfile \
-                  --destination=$(params.DOCKER_REGISTRY)/$(params.APP_NAME):$(params.VERSION)
+                  --destination=${DOCKER_REGISTRY}/${APP_NAME}:pr-${PULL_NUMBER}
 
-      # 预览环境部署
-      - name: preview
-        runAfter: ["post-build"]
-        taskSpec:
-          steps:
-            - name: deploy-preview
+            - name: preview
               image: gcr.io/jenkinsxio/jx:latest
+              env:
+                - name: APP_NAME
+                  value: timelogger
               script: |
-                jx preview create
-
-  workspaces:
-    - name: shared-data
-      emptyDir: {}
-
-  podTemplate:
-    securityContext:
-      fsGroup: 65534
-    nodeSelector:
-      kubernetes.io/os: linux
+                jx preview create \
+                  --app ${APP_NAME} \
+                  --app-version pr-${PULL_NUMBER}
 
   serviceAccountName: tekton-bot
   timeout: 1h0m0s
