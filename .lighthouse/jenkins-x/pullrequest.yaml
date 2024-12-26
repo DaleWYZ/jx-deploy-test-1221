@@ -4,16 +4,13 @@ apiVersion: tekton.dev/v1beta1
 kind: PipelineRun
 metadata:
   creationTimestamp: null
-  name: pullrequest  # 流水线运行的名称
+  name: pullrequest
 spec:
   params:
     - name: revision
       value: $(params.pull_base_ref)
     - name: pull_base_ref
       value: main
-  workspaces:
-    - name: shared-data
-      emptyDir: {}
   pipelineSpec:
     params:
       - name: revision
@@ -24,60 +21,71 @@ spec:
         description: "PR 的基础分支"
     workspaces:
       - name: shared-data
+        description: "用于在步骤之间共享数据的工作空间"
     tasks:
-    - name: from-build-pack
-      params:
-        - name: revision
-          value: $(params.revision)
-      workspaces:
-        - name: shared-data
-          workspace: shared-data
-      taskSpec:
-        params:
-          - name: revision
-            type: string
-        workspaces:
-          - name: shared-data
-            description: "用于在步骤之间共享数据的工作空间"
-        stepTemplate:
-          image: golang:1.21
-          workingDir: $(workspaces.shared-data.path)
-          resources:
-            requests:
-              cpu: 400m
-              memory: 600Mi
-            limits:
-              cpu: "1"
-              memory: "2Gi"
-          env:
-            - name: DOCKER_REGISTRY
-              value: harbor.corp.angoo.io
-            - name: APP_NAME
-              value: timelogger
-        steps:
-        - image: alpine/git:v2.30.2
-          name: git-clone
-          script: |
-            git clone $(params.REPO_URL) .
-            git checkout $(params.revision)
-        
-        - name: build-make-linux
-          command:
-            - make
-            - build
-        
-        - name: build-container-build
-          command:
-            - skaffold
-            - build
-        
-        - name: promote-jx-preview
-          command:
-            - jx
-            - preview
-            - --app timelogger
-            - --dir ../..
-  
+      # 设置阶段
+      - name: setup
+        taskSpec:
+          steps:
+            - name: git-clone
+              image: alpine/git:v2.30.2
+              script: |
+                git clone $(params.REPO_URL) .
+                git checkout $(params.revision)
+
+      # 构建前阶段
+      - name: pre-build
+        runAfter: ["setup"]
+        taskSpec:
+          steps:
+            - name: check-go
+              image: golang:1.21
+              script: |
+                go version
+                go env
+
+      # 构建阶段
+      - name: build
+        runAfter: ["pre-build"]
+        taskSpec:
+          steps:
+            - name: build-binary
+              image: golang:1.21
+              script: |
+                make build
+
+      # 构建后阶段
+      - name: post-build
+        runAfter: ["build"]
+        taskSpec:
+          steps:
+            - name: build-container
+              image: gcr.io/kaniko-project/executor:latest
+              script: |
+                /kaniko/executor \
+                  --context=. \
+                  --dockerfile=Dockerfile \
+                  --destination=$(params.DOCKER_REGISTRY)/$(params.APP_NAME):$(params.VERSION)
+
+      # 预览环境部署
+      - name: preview
+        runAfter: ["post-build"]
+        taskSpec:
+          steps:
+            - name: deploy-preview
+              image: gcr.io/jenkinsxio/jx:latest
+              script: |
+                jx preview create
+
+  workspaces:
+    - name: shared-data
+      emptyDir: {}
+
+  podTemplate:
+    securityContext:
+      fsGroup: 65534
+    nodeSelector:
+      kubernetes.io/os: linux
+
   serviceAccountName: tekton-bot
-  timeout: 12h0m0s
-status: {}
+  timeout: 1h0m0s
