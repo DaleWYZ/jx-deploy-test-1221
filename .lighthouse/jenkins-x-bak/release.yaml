@@ -1,0 +1,69 @@
+# Tekton PipelineRun 资源定义
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  name: release
+spec:
+  params:
+    - name: REPO_URL
+      value: https://github.com/DaleWYZ/jx-deploy-test-1221.git
+    - name: revision
+      value: master
+  pipelineSpec:
+    params:
+      - name: REPO_URL
+        type: string
+      - name: revision
+        type: string
+    tasks:
+      - name: from-build-pack
+        params:
+          - name: REPO_URL
+            value: $(params.REPO_URL)
+          - name: revision
+            value: $(params.revision)
+        taskSpec:
+          params:
+            - name: REPO_URL
+              type: string
+            - name: revision
+              type: string
+          steps:
+            - name: git-clone
+              image: alpine/git:v2.30.2
+              script: |
+                git clone $(params.REPO_URL) .
+                git checkout $(params.revision)
+
+            - name: build
+              image: golang:1.21
+              script: |
+                make build
+
+            - name: container-build
+              image: gcr.io/kaniko-project/executor:latest
+              env:
+                - name: DOCKER_REGISTRY
+                  value: harbor.corp.angoo.io
+                - name: APP_NAME
+                  value: timelogger
+              script: |
+                /kaniko/executor \
+                  --context=. \
+                  --dockerfile=Dockerfile \
+                  --destination=${DOCKER_REGISTRY}/${APP_NAME}:latest
+
+            - name: promote
+              image: gcr.io/jenkinsxio/jx:latest
+              env:
+                - name: APP_NAME
+                  value: timelogger
+              script: |
+                jx promote \
+                  --app ${APP_NAME} \
+                  --version latest \
+                  --env staging \
+                  --batch-mode
+
+  serviceAccountName: tekton-bot
+  timeout: 1h0m0s
