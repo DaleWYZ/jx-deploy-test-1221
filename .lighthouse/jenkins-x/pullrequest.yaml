@@ -4,10 +4,38 @@ kind: PipelineRun
 metadata:
   name: pullrequest
 spec:
+  params:
+    - name: REPO_URL
+      value: https://github.com/DaleWYZ/jx-deploy-test-1221.git
+    - name: revision
+      value: $(params.pull_base_ref)
+    - name: PULL_NUMBER
+      value: $(params.pull_number)
   pipelineSpec:
+    params:
+      - name: REPO_URL
+        type: string
+      - name: revision
+        type: string
+      - name: PULL_NUMBER
+        type: string
     tasks:
       - name: from-build-pack
+        params:
+          - name: REPO_URL
+            value: $(params.REPO_URL)
+          - name: revision
+            value: $(params.revision)
+          - name: PULL_NUMBER
+            value: $(params.PULL_NUMBER)
         taskSpec:
+          params:
+            - name: REPO_URL
+              type: string
+            - name: revision
+              type: string
+            - name: PULL_NUMBER
+              type: string
           steps:
             - name: git-clone
               image: alpine/git:v2.30.2
@@ -31,7 +59,7 @@ spec:
                 /kaniko/executor \
                   --context=. \
                   --dockerfile=Dockerfile \
-                  --destination=${DOCKER_REGISTRY}/${APP_NAME}:pr-${PULL_NUMBER}
+                  --destination=${DOCKER_REGISTRY}/${APP_NAME}:pr-$(params.PULL_NUMBER)
 
             - name: preview
               image: gcr.io/jenkinsxio/jx:latest
@@ -41,7 +69,7 @@ spec:
               script: |
                 jx preview create \
                   --app ${APP_NAME} \
-                  --app-version pr-${PULL_NUMBER}
+                  --app-version pr-$(params.PULL_NUMBER)
 
   serviceAccountName: tekton-bot
   timeout: 1h0m0s
