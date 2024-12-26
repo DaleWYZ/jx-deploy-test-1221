@@ -16,9 +16,30 @@ all: build
 
 check: fmt build test
 
-.PHONY: build
-build:
-	CGO_ENABLED=$(CGO_ENABLED) $(GO) build -ldflags $(BUILDFLAGS) -o bin/$(NAME) $(MAIN_GO)
+.PHONY: build test clean docker-build
+
+# 构建变量
+BINARY_NAME=main
+DOCKER_REGISTRY?=harbor.corp.angoo.io/
+APP_NAME?=timelogger
+VERSION?=latest
+
+# Go 构建参数
+CGO_ENABLED=0
+GOOS=linux
+GOARCH=amd64
+MAIN_GO=cmd/main.go
+
+clean:
+	rm -rf bin/
+
+build: clean
+	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o bin/$(BINARY_NAME) $(MAIN_GO)
+
+docker-build:
+	docker build -t $(DOCKER_REGISTRY)/$(APP_NAME):$(VERSION) .
+
+.DEFAULT_GOAL := build
 
 test: 
 	CGO_ENABLED=$(CGO_ENABLED) $(GO) test $(PACKAGE_DIRS) -test.v
@@ -31,9 +52,6 @@ install:
 fmt:
 	@FORMATTED=`$(GO) fmt $(PACKAGE_DIRS)`
 	@([[ ! -z "$(FORMATTED)" ]] && printf "Fixed unformatted files:\n$(FORMATTED)") || true
-
-clean:
-	rm -rf build release
 
 linux:
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=linux GOARCH=amd64 $(GO) build -ldflags $(BUILDFLAGS) -o bin/$(NAME) $(MAIN_GO)
