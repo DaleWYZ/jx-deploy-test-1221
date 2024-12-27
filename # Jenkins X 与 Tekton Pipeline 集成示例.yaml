@@ -194,8 +194,11 @@ profiles:
 
 #For more help on available commands see: https://jenkins-x.io/developing/browsing/
 
+# 参考文档
+# https://github.com/jenkins-x/lighthouse/blob/main/docs/trigger/github-com-tektoncd-pipeline-pkg-apis-pipeline-v1beta1.md#PipelineSpec
 
-
+#catalog
+#https://github.com/jenkins-x/jx3-pipeline-catalog/tree/master
 
 # Jenkins X 工作原理及组件说明:
 
