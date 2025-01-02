@@ -39,15 +39,14 @@ spec:
           resources: {}
             #- name: promote-helm-release
             # resources: {}
-            #- name: promote-jx-promote
-            #resources: {}
-        - name: deploy-app
+        - name: promote-jx-promote
           script: |
             #!/bin/sh
-            # 这一步会加载 .jx/variables.sh 中的变量
+            # 加载变量
             jx gitops variables
-            # 然后应用部署文件，此时变量会被替换
+            # 应用部署
             kubectl apply -f deploy/k8s/deployment.yaml
+          resources: {}
   podTemplate: {}
   serviceAccountName: tekton-bot
   timeout: 12h0m0s
