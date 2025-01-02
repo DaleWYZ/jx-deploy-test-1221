@@ -44,6 +44,12 @@ spec:
             #!/bin/sh
             # 加载变量
             jx gitops variables
+
+            # 替换部署文件中的变量
+            VERSION=$(cat VERSION)
+            sed -i "s/\${VERSION}/$VERSION/g" deploy/k8s/deployment.yaml
+            sed -i "s/\${DOCKER_REGISTRY}/$DOCKER_REGISTRY/g" deploy/k8s/deployment.yaml
+            sed -i "s/\${APP_NAME}/$APP_NAME/g" deploy/k8s/deployment.yaml
             # 应用部署
             kubectl apply -f deploy/k8s/deployment.yaml
           resources: {}
