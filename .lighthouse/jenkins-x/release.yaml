@@ -47,8 +47,8 @@ spec:
 
             # 替换部署文件中的变量
             VERSION=$(cat VERSION)
-            DOCKER_REGISTRY=$(DOCKER_REGISTRY)
-            APP_NAME=$(APP_NAME)
+            DOCKER_REGISTRY=$(cat DOCKER_REGISTRY)
+            APP_NAME=$(cat APP_NAME)
             sed -i "s/\${VERSION}/$VERSION/g" deploy/k8s/deployment.yaml
             sed -i "s/\${DOCKER_REGISTRY}/$DOCKER_REGISTRY/g" deploy/k8s/deployment.yaml
             sed -i "s/\${APP_NAME}/$APP_NAME/g" deploy/k8s/deployment.yaml
