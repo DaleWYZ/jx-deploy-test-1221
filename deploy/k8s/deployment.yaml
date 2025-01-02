@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: timelogger
-        image: ${DOCKER_REGISTRY}/${APP_NAME}:${VERSION}
+        image: ghcr.io/dalewyz/jx-deploy-test-1221:${VERSION}
         resources:
           limits:
             memory: "128Mi"
